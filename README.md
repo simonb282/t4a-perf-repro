@@ -9,7 +9,7 @@ public API, pinned to `9222cbe` (the exercised files are unchanged on `main`
 |---|---|---|
 | `memo` | `MultiIndexCache::evaluate_batched` per requested point, against a minimal one-key-one-lookup baseline and against no memo | tensor4all-rs#1020 |
 | `evaluator` | `TreeTNCachedEvaluator::evaluate_batched_typed` per point, large and small batches | tensor4all-rs#1021 |
-| `readout` | fixed cost per call: the same points read as one batch and one point per call | tensor4all-rs#____ |
+| `readout` | fixed cost per call: the same points read as one batch and one point per call | tensor4all-rs#1022 |
 | `comb` | end-to-end check: a full `crossinterpolate2` on a comb tree (three binary branches on a site-free junction, target a sum of K exponentials); `replay` sends treetci's recorded request stream through `MultiIndexCache`; `eval` times the evaluator on the result | all of the above |
 
 ## Run
