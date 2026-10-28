@@ -11,7 +11,7 @@ public API, pinned to `9222cbe` (the exercised files are unchanged on `main`
 | `evaluator` | `TreeTNCachedEvaluator::evaluate_batched_typed` per point, large and small batches | tensor4all-rs#1021 |
 | `readout` | fixed cost per call: the same points read as one batch and one point per call | tensor4all-rs#1022 |
 | `linalg` | three per-call costs below the evaluator: the finiteness passes before rrLU, `tensorbackend::mat_mul(&a, &b)` against faer on borrowed slices, `IdxTensor::dense_host_values` against `with_dense_slice` | not filed (candidates, see the tracking issue) |
-| `bipartition` | cost per entry of candidate matrices (points assembled, then `MultiIndexCache::evaluate_batched`) against caller-side keys built from the two sides of the matrix | not filed (candidate, see the tracking issue) |
+| `bipartition` | cost per entry of candidate matrices (points assembled, then `MultiIndexCache::evaluate_batched`) against caller-side keys built from the two sides of the matrix | tensor4all-rs#1026 |
 | `comb` | end-to-end check: a full `crossinterpolate2` on a comb tree (three binary branches on a site-free junction, target a sum of K exponentials); `replay` sends treetci's recorded request stream through `MultiIndexCache`; `eval` times the evaluator on the result | all of the above |
 
 ## Run
