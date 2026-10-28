@@ -1,0 +1,31 @@
+[package]
+name = "t4a-perf-repro"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Minimal timing reproducers for tensor4all-rs hot paths (public API only)"
+
+[dependencies]
+# Pinned revision of tensor4all-rs. The files these reproducers exercise are
+# unchanged on main 8b249a83.
+tensor4all-core = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "9222cbeec2e62b512b546685a4b513b139757136" }
+tensor4all-treetn = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "9222cbeec2e62b512b546685a4b513b139757136" }
+tensor4all-treetci = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "9222cbeec2e62b512b546685a4b513b139757136" }
+# Used only by the end-to-end binary `comb`.
+num-complex = "0.4"
+anyhow = "1"
+rand = "0.9"
+rand_chacha = "0.9"
+serde_json = "1"
+rustc-hash = "2"
+
+# To time a locally patched checkout instead, uncomment and adjust the path:
+# [patch."https://github.com/tensor4all/tensor4all-rs"]
+# tensor4all-core = { path = "../tensor4all-rs/crates/tensor4all-core" }
+# tensor4all-treetn = { path = "../tensor4all-rs/crates/tensor4all-treetn" }
+# tensor4all-treetci = { path = "../tensor4all-rs/crates/tensor4all-treetci" }
+# tensor4all-tensorbackend = { path = "../tensor4all-rs/crates/tensor4all-tensorbackend" }
+# tensor4all-simplett = { path = "../tensor4all-rs/crates/tensor4all-simplett" }
+
+[profile.release]
+debug = "line-tables-only"

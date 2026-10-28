@@ -1,0 +1,143 @@
+--- a/crates/tensor4all-core/src/cached_function/mod.rs
++++ b/crates/tensor4all-core/src/cached_function/mod.rs
+@@ -31,7 +31,10 @@
+ pub mod index_int;
+ pub mod multi_index_cache;
+ 
+-use std::collections::HashMap;
++use std::collections::HashMap as StdHashMap;
++
++/// PATCH (t4a_report): FxHash instead of SipHash for the memo's integer keys.
++pub(crate) type HashMap<K, V> = StdHashMap<K, V, rustc_hash::FxBuildHasher>;
+ use std::sync::atomic::{AtomicUsize, Ordering};
+ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+ 
+@@ -156,27 +159,27 @@
+         let bits = total_bits(local_dims);
+         if bits <= 64 {
+             Ok(Self::U64 {
+-                cache: RwLock::new(HashMap::new()),
++                cache: RwLock::new(HashMap::default()),
+                 coeffs: compute_coeffs::<u64>(local_dims)?,
+             })
+         } else if bits <= 128 {
+             Ok(Self::U128 {
+-                cache: RwLock::new(HashMap::new()),
++                cache: RwLock::new(HashMap::default()),
+                 coeffs: compute_coeffs::<u128>(local_dims)?,
+             })
+         } else if bits <= 256 {
+             Ok(Self::U256 {
+-                cache: RwLock::new(HashMap::new()),
++                cache: RwLock::new(HashMap::default()),
+                 coeffs: compute_coeffs::<U256>(local_dims)?,
+             })
+         } else if bits <= 512 {
+             Ok(Self::U512 {
+-                cache: RwLock::new(HashMap::new()),
++                cache: RwLock::new(HashMap::default()),
+                 coeffs: compute_coeffs::<U512>(local_dims)?,
+             })
+         } else if bits <= 1024 {
+             Ok(Self::U1024 {
+-                cache: RwLock::new(HashMap::new()),
++                cache: RwLock::new(HashMap::default()),
+                 coeffs: compute_coeffs::<U1024>(local_dims)?,
+             })
+         } else {
+@@ -281,7 +284,7 @@
+ impl<K: CacheKey, V: Clone + Send + Sync> GenericCache<K, V> {
+     fn new(local_dims: &[usize]) -> Result<Self, error::CacheKeyError> {
+         Ok(Self {
+-            cache: RwLock::new(HashMap::new()),
++            cache: RwLock::new(HashMap::default()),
+             coeffs: compute_coeffs::<K>(local_dims)?,
+         })
+     }
+--- a/crates/tensor4all-core/src/cached_function/multi_index_cache.rs
++++ b/crates/tensor4all-core/src/cached_function/multi_index_cache.rs
+@@ -312,6 +312,73 @@
+             }
+             .into());
+         }
++        // PATCH (t4a_report): u64-key fast path. `&mut self` gives exclusive access, so the map is reached through
++        // `RwLock::get_mut` (no atomic lock), each point's key is computed once and used for the lookup, the
++        // in-batch dedup and the insert, and the dedup map is a pre-sized local map. Same values, same hit/miss and
++        // dropped-insert accounting as the generic path below.
++        if let CacheBackend::Auto(super::InnerCache::U64 { cache, coeffs }) = &mut self.backend {
++            let map = cache.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner());
++            let local_dims = &self.local_dims;
++            let mut pending: super::HashMap<u64, usize> =
++                super::HashMap::with_capacity_and_hasher(n_points, Default::default());
++            let mut miss_keys: Vec<u64> = Vec::new();
++            let mut miss_data = Vec::new();
++            let mut slots = Vec::with_capacity(n_points);
++            for position in 0..n_points {
++                let point = &indices.data()[position * n_sites..(position + 1) * n_sites];
++                for (axis, (&value, &dim)) in point.iter().zip(local_dims).enumerate() {
++                    let value = value.to_usize();
++                    if value >= dim {
++                        return Err(error::CacheKeyError::IndexOutOfBounds { axis, index: value, dim }.into());
++                    }
++                }
++                let key = super::flat_index(point, coeffs);
++                if let Some(value) = map.get(&key) {
++                    self.hits += 1;
++                    slots.push(Ok(value.clone()));
++                } else {
++                    self.misses += 1;
++                    let slot = *pending.entry(key).or_insert_with(|| {
++                        miss_keys.push(key);
++                        miss_data.extend_from_slice(point);
++                        miss_keys.len() - 1
++                    });
++                    slots.push(Err(slot));
++                }
++            }
++            let n_misses = miss_keys.len();
++            let values = if n_misses == 0 {
++                Vec::new()
++            } else {
++                let shape = [n_sites, n_misses];
++                let values = evaluate(ColMajorArrayRef::new(&miss_data, &shape)?)
++                    .map_err(CachedBatchError::Evaluation)?;
++                if values.len() != n_misses {
++                    return Err(error::CacheKeyError::BatchResultLength {
++                        expected: n_misses,
++                        got: values.len(),
++                    }
++                    .into());
++                }
++                let entry_bytes = self.key_bytes + std::mem::size_of::<V>();
++                map.reserve(n_misses);
++                for (&key, value) in miss_keys.iter().zip(&values) {
++                    if (map.len() * entry_bytes).saturating_add(entry_bytes) > self.retained_byte_limit {
++                        self.dropped_inserts += 1;
++                    } else {
++                        map.insert(key, value.clone());
++                    }
++                }
++                values
++            };
++            return Ok(slots
++                .into_iter()
++                .map(|slot| match slot {
++                    Ok(value) => value,
++                    Err(position) => values[position].clone(),
++                })
++                .collect());
++        }
+         let pending =
+             MultiIndexCache::<usize, I>::with_retained_byte_limit(&self.local_dims, usize::MAX)?;
+         let mut miss_data = Vec::new();
+--- a/crates/tensor4all-core/Cargo.toml
++++ b/crates/tensor4all-core/Cargo.toml
+@@ -69,6 +69,8 @@
+ tenferro-einsum.workspace = true
+ tenferro-linalg.workspace = true
+ tenferro-tensor.workspace = true
++# PATCH (t4a_report)
++rustc-hash = "2"
+ 
+ [dev-dependencies]
+ rand_chacha.workspace = true

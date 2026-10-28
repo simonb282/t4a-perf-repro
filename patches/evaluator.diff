@@ -1,0 +1,358 @@
+--- a/crates/tensor4all-treetn/src/treetn/cached_evaluator.rs
++++ b/crates/tensor4all-treetn/src/treetn/cached_evaluator.rs
+@@ -2,7 +2,9 @@
+ 
+ use crate::error::TreeTNOperationError;
+ use std::any::{Any, TypeId};
+-use std::collections::{HashMap, HashSet};
++// PATCH (t4a_report): FxHash for every map of the evaluator (keys are IndexKey, node names and node pairs).
++type HashMap<K, V> = std::collections::HashMap<K, V, rustc_hash::FxBuildHasher>;
++type HashSet<K> = std::collections::HashSet<K, rustc_hash::FxBuildHasher>;
+ use std::fmt::Debug;
+ use std::hash::Hash;
+ use std::sync::Arc;
+@@ -753,7 +755,7 @@
+         if neighbors.is_empty() {
+             return Ok(Self {
+                 neighbors,
+-                directed_counts: HashMap::new(),
++                directed_counts: HashMap::default(),
+                 node_costs: None,
+             });
+         }
+@@ -764,7 +766,7 @@
+ 
+         let (parent, order) = rooted_tree(&neighbors, &root)?;
+         let mut local_interner = KeyInterner::<Vec<usize>>::default();
+-        let mut local_keys: HashMap<V, Vec<KeyId>> = HashMap::with_capacity(node_names.len());
++        let mut local_keys: HashMap<V, Vec<KeyId>> = HashMap::with_capacity_and_hasher(node_names.len(), Default::default());
+         for node in &node_names {
+             let entries = layout
+                 .entries_by_node
+@@ -792,7 +794,7 @@
+ 
+         let mut component_interner = KeyInterner::<Vec<KeyId>>::default();
+         let mut directed_keys: HashMap<V, HashMap<V, Vec<KeyId>>> =
+-            HashMap::with_capacity(neighbors.len());
++            HashMap::with_capacity_and_hasher(neighbors.len(), Default::default());
+ 
+         for node in order.iter().rev() {
+             let Some(parent_node) = parent.get(node).and_then(Clone::clone) else {
+@@ -869,7 +871,7 @@
+             }
+         }
+ 
+-        let mut directed_counts = HashMap::with_capacity(tree.edge_count() * 2);
++        let mut directed_counts = HashMap::with_capacity_and_hasher(tree.edge_count() * 2, Default::default());
+         for (source, targets) in directed_keys {
+             for (target, keys) in targets {
+                 let count = keys.into_iter().collect::<HashSet<_>>().len();
+@@ -927,7 +929,7 @@
+         }
+         Self {
+             neighbors,
+-            directed_counts: HashMap::new(),
++            directed_counts: HashMap::default(),
+             node_costs: Some(node_costs),
+         }
+     }
+@@ -970,7 +972,7 @@
+     fn from_neighbors(neighbors: &HashMap<V, Vec<V>>, center: &V) -> Result<Self> {
+         let (parent, order) = rooted_tree(neighbors, center)?;
+ 
+-        let mut children = HashMap::<V, Vec<V>>::new();
++        let mut children = HashMap::<V, Vec<V>>::default();
+         for node in neighbors.keys() {
+             children.insert(node.clone(), Vec::new());
+         }
+@@ -1465,7 +1467,7 @@
+                 directed_component_layouts,
+                 neighbors,
+                 sorted_node_names,
+-                rooted_plans: std::sync::Mutex::new(HashMap::new()),
++                rooted_plans: std::sync::Mutex::new(HashMap::default()),
+             }),
+         })
+     }
+@@ -1833,8 +1835,8 @@
+             center,
+             batch_point_limit,
+             last_stats: CachedEvaluationStats::default(),
+-            message_caches: HashMap::new(),
+-            parent_bond_indices: HashMap::new(),
++            message_caches: HashMap::default(),
++            parent_bond_indices: HashMap::default(),
+             prepared_branch_slices_f64: PreparedBranchSliceCache::new(branch_slice_cache_max_bytes),
+             prepared_branch_slices_c64: PreparedBranchSliceCache::new(branch_slice_cache_max_bytes),
+             raw_messages: false,
+@@ -2329,7 +2331,7 @@
+         self.raw_messages = self.can_use_raw_messages(center)?;
+         let assignment_batches = self.build_message_assignment_batches(&plan, values)?;
+ 
+-        let mut messages = HashMap::<V, StackedMessage>::new();
++        let mut messages = HashMap::<V, StackedMessage>::default();
+         for neighbor in plan.children.get(center).cloned().unwrap_or_default() {
+             let node_message = self.get_or_compute_node_message(
+                 &neighbor,
+@@ -2343,7 +2345,7 @@
+         }
+ 
+         let mut component_batches = Vec::new();
+-        let mut cache = HashMap::new();
++        let mut cache = HashMap::default();
+         let mut subtree_environment_count = 0usize;
+         for neighbor in plan.children.get(center).cloned().unwrap_or_default() {
+             let assignment_batch = assignment_batches.get(&neighbor).ok_or_else(|| {
+@@ -2538,7 +2540,7 @@
+         values: ColMajorArrayRef<'_, usize>,
+     ) -> Result<HashMap<V, AssignmentBatch>> {
+         let n_points = values.shape()[1];
+-        let mut local_keys = HashMap::<V, Vec<IndexKey>>::new();
++        let mut local_keys = HashMap::<V, Vec<IndexKey>>::default();
+ 
+         // One scratch coordinate buffer for the whole call. Allocating it per
+         // node and point was the assignment builder's dominant short-lived
+@@ -2578,7 +2580,7 @@
+             local_keys.insert(node.clone(), keys);
+         }
+ 
+-        let mut assignment_batches = HashMap::<V, AssignmentBatch>::new();
++        let mut assignment_batches = HashMap::<V, AssignmentBatch>::default();
+         for node in &plan.postorder {
+             let local_keys = local_keys.get(node).ok_or_else(|| {
+                 anyhow::anyhow!(
+@@ -2623,7 +2625,8 @@
+                 node
+             );
+ 
+-            let mut assignment_ids = HashMap::<IndexKey, usize>::new();
++            let mut assignment_ids =
++                HashMap::<IndexKey, usize>::with_capacity_and_hasher(n_points, Default::default());
+             let mut first_points = Vec::new();
+             let mut assignment_keys = Vec::new();
+             let mut point_to_assignment = Vec::with_capacity(n_points);
+@@ -2645,14 +2648,16 @@
+                     "TreeTNCachedEvaluator: composed key width does not match its component layout"
+                 );
+                 let key = builder.finish();
+-                let assignment_id = if let Some(&assignment_id) = assignment_ids.get(&key) {
+-                    assignment_id
+-                } else {
+-                    let assignment_id = assignment_keys.len();
+-                    assignment_ids.insert(key.clone(), assignment_id);
+-                    assignment_keys.push(key);
+-                    first_points.push(point);
+-                    assignment_id
++                // PATCH (t4a_report): one hash per point (entry API); the key is cloned only when new.
++                let assignment_id = match assignment_ids.entry(key) {
++                    std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
++                    std::collections::hash_map::Entry::Vacant(entry) => {
++                        let assignment_id = assignment_keys.len();
++                        assignment_keys.push(entry.key().clone());
++                        entry.insert(assignment_id);
++                        first_points.push(point);
++                        assignment_id
++                    }
+                 };
+                 point_to_assignment.push(assignment_id);
+             }
+@@ -2689,7 +2694,8 @@
+                 )
+             })?;
+         let n_points = values.shape()[1];
+-        let mut assignment_ids = HashMap::<IndexKey, usize>::new();
++        let mut assignment_ids =
++            HashMap::<IndexKey, usize>::with_capacity_and_hasher(n_points, Default::default());
+         let mut first_points = Vec::new();
+         let mut assignment_keys = Vec::new();
+         let mut point_to_assignment = Vec::with_capacity(n_points);
+@@ -2711,14 +2717,16 @@
+                 .indexer
+                 .encode(&raw)
+                 .map_err(anyhow::Error::from)?;
+-            let assignment_id = if let Some(&assignment_id) = assignment_ids.get(&key) {
+-                assignment_id
+-            } else {
+-                let assignment_id = assignment_keys.len();
+-                assignment_ids.insert(key.clone(), assignment_id);
+-                assignment_keys.push(key);
+-                first_points.push(point);
+-                assignment_id
++            // PATCH (t4a_report): one hash per point (entry API); the key is cloned only when new.
++            let assignment_id = match assignment_ids.entry(key) {
++                std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
++                std::collections::hash_map::Entry::Vacant(entry) => {
++                    let assignment_id = assignment_keys.len();
++                    assignment_keys.push(entry.key().clone());
++                    entry.insert(assignment_id);
++                    first_points.push(point);
++                    assignment_id
++                }
+             };
+             point_to_assignment.push(assignment_id);
+         }
+@@ -2967,7 +2975,7 @@
+             return scalar_chain_message_contraction(spec, raw, physical_values, child_columns);
+         }
+ 
+-        let mut groups = HashMap::<usize, Vec<usize>>::new();
++        let mut groups = HashMap::<usize, Vec<usize>>::default();
+         for (point, &physical_value) in physical_values.iter().enumerate() {
+             groups.entry(physical_value).or_default().push(point);
+         }
+@@ -3316,7 +3324,7 @@
+             );
+         }
+ 
+-        let mut groups = HashMap::<usize, Vec<usize>>::new();
++        let mut groups = HashMap::<usize, Vec<usize>>::default();
+         for (point, &physical_value) in physical_values.iter().enumerate() {
+             groups.entry(physical_value).or_default().push(point);
+         }
+@@ -3527,7 +3535,7 @@
+             spec.child_dim_2
+         );
+ 
+-        let mut groups = HashMap::<usize, Vec<usize>>::new();
++        let mut groups = HashMap::<usize, Vec<usize>>::default();
+         for (point, &physical_value) in physical_values.iter().enumerate() {
+             groups.entry(physical_value).or_default().push(point);
+         }
+@@ -5542,14 +5550,14 @@
+                 .get(&reverse_edge)
+                 .is_some_and(|cache| center_batch.keys.iter().all(|key| cache.contains(key)));
+             if fully_cached {
+-                HashMap::from([(center.clone(), center_batch)])
++                HashMap::from_iter([(center.clone(), center_batch)])
+             } else {
+                 self.build_message_assignment_batches(&reverse_plan, values)?
+             }
+         } else {
+             self.build_message_assignment_batches(&reverse_plan, values)?
+         };
+-        let mut reverse_messages = HashMap::new();
++        let mut reverse_messages = HashMap::default();
+         let center_message = self.get_or_compute_node_message(
+             center,
+             values,
+@@ -6491,7 +6499,7 @@
+         .prepared_elements()?
+         .checked_div(first_dim)
+         .ok_or_else(|| anyhow::anyhow!("multi-branch child dimension must be positive"))?;
+-    let mut groups = HashMap::<usize, Vec<usize>>::new();
++    let mut groups = HashMap::<usize, Vec<usize>>::default();
+     for (point, &physical_value) in physical_values.iter().enumerate() {
+         groups.entry(physical_value).or_default().push(point);
+     }
+@@ -6728,7 +6736,7 @@
+         total_site_indices
+     );
+ 
+-    let mut seen = HashSet::with_capacity(indices.len());
++    let mut seen = HashSet::with_capacity_and_hasher(indices.len(), Default::default());
+     for index in indices {
+         anyhow::ensure!(
+             seen.insert(index.clone()),
+@@ -6737,8 +6745,8 @@
+         );
+     }
+ 
+-    let mut entries_by_node: HashMap<V, Vec<SiteEntry>> = HashMap::new();
+-    let mut tensor_indices_by_node: HashMap<V, Vec<DynIndex>> = HashMap::new();
++    let mut entries_by_node: HashMap<V, Vec<SiteEntry>> = HashMap::default();
++    let mut tensor_indices_by_node: HashMap<V, Vec<DynIndex>> = HashMap::default();
+     for (input_position, index) in indices.iter().enumerate() {
+         let node_name = tree
+             .site_index_network()
+@@ -6775,7 +6783,7 @@
+         entries.sort_by_key(|entry| entry.local_axis);
+     }
+ 
+-    let mut local_layouts_by_node = HashMap::with_capacity(tree.node_count());
++    let mut local_layouts_by_node = HashMap::with_capacity_and_hasher(tree.node_count(), Default::default());
+     let mut node_names = tree.node_names();
+     node_names.sort();
+     for node in node_names {
+@@ -6859,7 +6867,7 @@
+     let neighbors = sorted_neighbors(tree);
+     let mut node_names = tree.node_names();
+     node_names.sort();
+-    let mut directed_layouts = HashMap::with_capacity(tree.edge_count() * 2);
++    let mut directed_layouts = HashMap::with_capacity_and_hasher(tree.edge_count() * 2, Default::default());
+     for node in node_names {
+         let node_neighbors = neighbors
+             .get(&node)
+@@ -6867,7 +6875,7 @@
+         for neighbor in node_neighbors {
+             let mut input_positions = Vec::new();
+             let mut dimensions = Vec::new();
+-            let mut visited = HashSet::new();
++            let mut visited = HashSet::default();
+             let child_nodes = append_directed_component_layout(
+                 layout,
+                 &node,
+@@ -7317,7 +7325,7 @@
+     T: TensorLike,
+     V: Clone + Eq + Hash + Ord + Debug + Send + Sync,
+ {
+-    let mut map = HashMap::new();
++    let mut map = HashMap::default();
+     let mut node_names = tree.node_names();
+     node_names.sort();
+     for node in node_names {
+@@ -7332,7 +7340,7 @@
+ where
+     V: Clone + Eq + Hash + Ord + Debug,
+ {
+-    let mut parent = HashMap::<V, Option<V>>::new();
++    let mut parent = HashMap::<V, Option<V>>::default();
+     let mut order = Vec::<V>::new();
+     let mut stack = vec![(root.clone(), None)];
+     while let Some((node, parent_node)) = stack.pop() {
+@@ -7454,7 +7462,7 @@
+         Self {
+             max_bytes,
+             retained_bytes: 0,
+-            slices: HashMap::new(),
++            slices: HashMap::default(),
+         }
+     }
+ 
+@@ -7551,7 +7559,7 @@
+         Self {
+             bond_dim,
+             max_bytes,
+-            positions: HashMap::new(),
++            positions: HashMap::default(),
+             columns: Vec::new(),
+             key_heap_bytes: 0,
+             hits: 0,
+@@ -7676,7 +7684,7 @@
+         E: From<anyhow::Error>,
+     {
+         let mut missing_keys = Vec::new();
+-        let mut missing_seen = HashSet::new();
++        let mut missing_seen = HashSet::default();
+         for key in keys {
+             if self.positions.contains_key(key) {
+                 self.hits += 1;
+@@ -7688,7 +7696,7 @@
+             }
+         }
+ 
+-        let mut computed_values: HashMap<K, Vec<T>> = HashMap::new();
++        let mut computed_values: HashMap<K, Vec<T>> = HashMap::default();
+         if !missing_keys.is_empty() {
+             let computed = compute_missing(&missing_keys)?;
+             if computed.len() != missing_keys.len() {
+--- a/crates/tensor4all-treetn/Cargo.toml
++++ b/crates/tensor4all-treetn/Cargo.toml
+@@ -39,6 +39,8 @@
+ diagnostics = []
+ 
+ [dependencies]
++# PATCH (t4a_report)
++rustc-hash = "2"
+ tensor4all-core = { path = "../tensor4all-core", default-features = false }
+ tensor4all-simplett = { path = "../tensor4all-simplett", default-features = false, optional = true }
+ tensor4all-tensorbackend = { path = "../tensor4all-tensorbackend", default-features = false }
