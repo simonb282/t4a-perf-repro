@@ -7,10 +7,14 @@
 //!  (B) assemble the points, one mixed-radix key per point, one lookup in a std `HashMap` (the baseline of `memo`);
 //!  (C) never assemble a point for a hit: key(i, j) = key_left[i] * 2^15 + key_right[j] from per-side keys,
 //!      one lookup in the same std `HashMap`; the point is assembled only for a miss.
-//! (C) is caller-side code on the public API; it shows what a cache entry point that takes the keys of the
-//! two sides could save, it is not an existing upstream API.
+//!  (B') and (C'): (B) and (C) with a fast hasher (rustc-hash) instead of SipHash, to see the effect of the keys
+//!      when the hash is cheap.
+//! (C) and (C') are caller-side code on the public API; they show what a cache entry point that takes the keys
+//! of the two sides could save, they are not an existing upstream API.
 
 use std::collections::HashMap;
+
+use rustc_hash::FxHashMap;
 use std::time::Instant;
 
 use t4a_perf_repro::{fingerprint, random_points, Error, Lcg};
@@ -113,6 +117,40 @@ fn main() -> Result<(), Error> {
     }
     let c_s = start.elapsed().as_secs_f64();
 
+    // (B') as (B) with FxHash
+    let mut fx_map: FxHashMap<u64, f64> = FxHashMap::default();
+    let mut out_bf = Vec::with_capacity(n_requests);
+    let start = Instant::now();
+    for (li, ri) in &picks {
+        for &r in ri {
+            for &l in li {
+                point[..HALF].copy_from_slice(left(l));
+                point[HALF..].copy_from_slice(right(r));
+                out_bf.push(*fx_map.entry(key_of(&point)).or_insert_with(|| f(&point)));
+            }
+        }
+    }
+    let bf_s = start.elapsed().as_secs_f64();
+
+    // (C') as (C) with FxHash
+    let mut fx_map: FxHashMap<u64, f64> = FxHashMap::default();
+    let mut out_cf = Vec::with_capacity(n_requests);
+    let start = Instant::now();
+    for (li, ri) in &picks {
+        for &r in ri {
+            for &l in li {
+                let key = (left_keys[l] << HALF) + right_keys[r];
+                let value = *fx_map.entry(key).or_insert_with(|| {
+                    point[..HALF].copy_from_slice(left(l));
+                    point[HALF..].copy_from_slice(right(r));
+                    f(&point)
+                });
+                out_cf.push(value);
+            }
+        }
+    }
+    let cf_s = start.elapsed().as_secs_f64();
+
     let ns = |seconds: f64| seconds * 1e9 / n_requests as f64;
     println!(
         "requests {n_requests} in {MATRICES} matrices of {SIDE} x {SIDE}, evaluated {evaluated}, hits {}, misses {}",
@@ -122,11 +160,15 @@ fn main() -> Result<(), Error> {
     println!("(A) points + MultiIndexCache::evaluate_batched   {:7.1} ns/entry", ns(a_s));
     println!("(B) points + one key per point + std HashMap      {:7.1} ns/entry", ns(b_s));
     println!("(C) keys from the two sides + std HashMap          {:7.1} ns/entry", ns(c_s));
+    println!("(B') as (B) with FxHash                             {:7.1} ns/entry", ns(bf_s));
+    println!("(C') as (C) with FxHash                             {:7.1} ns/entry", ns(cf_s));
     println!(
-        "fingerprints: A {:016x}, B {:016x}, C {:016x}",
+        "fingerprints: A {:016x}, B {:016x}, C {:016x}, B' {:016x}, C' {:016x}",
         fingerprint(&out_a),
         fingerprint(&out_b),
-        fingerprint(&out_c)
+        fingerprint(&out_c),
+        fingerprint(&out_bf),
+        fingerprint(&out_cf)
     );
     Ok(())
 }
