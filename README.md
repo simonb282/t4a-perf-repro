@@ -11,6 +11,8 @@ repository are pinned to `9222cbe`), and need nothing else.
 | `evaluator` | `TreeTNCachedEvaluator::evaluate_batched_typed` per point, large and small batches | tensor4all-rs#1021 |
 | `readout` | fixed cost per call: the same points read as one batch and one point per call | tensor4all-rs#1022 |
 | `linalg` | three per-call costs below the evaluator: the finiteness passes before rrLU, `tensorbackend::mat_mul(&a, &b)` against faer on borrowed slices, `IdxTensor::dense_host_values` against `with_dense_slice` | tensor4all-rs issues for the three candidates (see the tracking issue #1027) |
+| `rrlu_full` | `rrlu` (full L and U) of a Complex64 matrix, with a result fingerprint | tensor4all-rs#1051 |
+| `thread_spin` | CPU time of idle pool workers: a parallel call (`mat_mul`) then a serial phase, on the process-wide backend, and on a bare `threadteam::Pool` with the idle spin given; prints wall, CPU and their ratio (not a timing of the library, a cost of waiting) | the issue on the pool's wait policy |
 | `bipartition` | cost per entry of candidate matrices (points assembled, then `MultiIndexCache::evaluate_batched`) against caller-side keys built from the two sides of the matrix | tensor4all-rs#1026 |
 | `comb` | end-to-end check: a full `crossinterpolate2` on a comb tree (three binary branches on a site-free junction, target a sum of K exponentials); `replay` sends treetci's recorded request stream through `MultiIndexCache`; `eval` times the evaluator on the result | all of the above |
 
@@ -22,6 +24,9 @@ RAYON_NUM_THREADS=1 taskset -c 2 ./target/release/memo
 RAYON_NUM_THREADS=1 taskset -c 2 ./target/release/evaluator
 RAYON_NUM_THREADS=1 taskset -c 2 ./target/release/readout
 RAYON_NUM_THREADS=1 taskset -c 2 ./target/release/bipartition
+# thread_spin is run WITHOUT taskset, on an otherwise idle machine, once per thread count
+for n in 1 2 4 8; do RAYON_NUM_THREADS=$n ./target/release/thread_spin backend; done
+./target/release/thread_spin team 4 200; ./target/release/thread_spin team 4 0   # default idle spin 200 ms, then none
 RAYON_NUM_THREADS=1 taskset -c 2 ./target/release/linalg    # exits 1 if a fast variant disagrees beyond its stated tolerance
 
 # end to end (arguments: see the header of src/bin/comb.rs)
