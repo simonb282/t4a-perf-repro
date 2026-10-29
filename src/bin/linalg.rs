@@ -1,9 +1,12 @@
-// Micro-benchmarks of three per-call costs in tensor4all-core / tensor4all-tensorbackend at rev 9222cbe.
+// Micro-benchmarks of three per-call costs in tensor4all-core / tensor4all-tensorbackend at rev 937f4738.
 //  (1) finiteness validation of a complex matrix before rrLU: Scalar::abs_val (Complex64::norm = hypot) per entry,
 //      as in matrixlu.rs:474-489 (validate_luci_matrix, two passes) + :871 (factorize_mut_in_place, third pass),
-//      against one pass on the components.
-//  (2) tensorbackend::mat_mul(&a, &b), which clones both operands (matrix.rs:598, 1647-1648) and goes through a
-//      tenferro session, against faer::linalg::matmul::matmul on borrowed column-major slices.
+//      against one pass on the components that falls back to the exact |z| test only for a component above
+//      f64::MAX / sqrt(2), so it rejects exactly the values the upstream passes reject.
+//  (2) tensorbackend::mat_mul(&a, &b) against faer::linalg::matmul::matmul on borrowed column-major slices, and
+//      against mat_mul_owned (the caller clones the operands, whose cost is printed) and Session::mat_mul on one
+//      held session. mat_mul_owned (with the clones) and Session::mat_mul take the time of mat_mul, so the session
+//      entry costs nothing measurable and mat_mul minus the clone time estimates the cost of the product itself.
 //  (3) IdxTensor::dense_host_values (owned copy) against IdxTensor::with_dense_slice (borrow).
 // Exits 1 if a fast variant disagrees with the upstream one beyond the stated tolerance.
 use std::time::Instant;
@@ -14,7 +17,7 @@ use num_complex::Complex64;
 use rand::{Rng, SeedableRng};
 use tensor4all_core::index::DynIndex;
 use tensor4all_core::{IdxTensor, Scalar};
-use tensor4all_tensorbackend::{mat_mul, Matrix};
+use tensor4all_tensorbackend::{mat_mul, mat_mul_owned, CpuBackend, CpuExecutionContext, Matrix};
 
 fn time<R>(reps: usize, mut f: impl FnMut() -> R) -> (f64, R) {
     let mut best = f64::INFINITY;
@@ -53,7 +56,7 @@ fn main() {
         // one pass on the components; |z| overflows only if max(|re|,|im|) > MAX/sqrt(2), so test that bound too
         const BOUND: f64 = f64::MAX / std::f64::consts::SQRT_2;
         let (t_fast, r_fast) = time(reps, || {
-            let bad = a.iter().any(|v| !(v.re.abs() <= BOUND && v.im.abs() <= BOUND));
+            let bad = a.iter().any(|v| !(v.re.abs() <= BOUND && v.im.abs() <= BOUND) && !v.abs_val().is_finite());
             (bad, bad, bad)
         });
         ok &= r_up == (false, false, false) && r_fast == r_up;
@@ -66,14 +69,14 @@ fn main() {
         );
     }
     // Semantics of the bound: a value that hypot sends to infinity is caught, a finite one is not.
-    let edge = [Complex64::new(1e308, 1e308), Complex64::new(f64::MAX / 2.0, 0.0), Complex64::new(f64::NAN, 0.0), Complex64::new(0.0, f64::INFINITY)];
+    let edge = [Complex64::new(1e308, 1e308), Complex64::new(f64::MAX / 2.0, 0.0), Complex64::new(f64::NAN, 0.0), Complex64::new(0.0, f64::INFINITY), Complex64::new(1.5e308, 1.5e308), Complex64::new(1.3e308, 0.0)];
     for z in edge {
         let up = !z.abs_val().is_finite();
         const BOUND: f64 = f64::MAX / std::f64::consts::SQRT_2;
-        let fast = !(z.re.abs() <= BOUND && z.im.abs() <= BOUND);
+        let fast = !(z.re.abs() <= BOUND && z.im.abs() <= BOUND) && !z.abs_val().is_finite();
         // the bound is conservative: it rejects only values within a factor sqrt(2) of f64::MAX that hypot keeps
         println!("  edge {z:e}: upstream rejects {up}, component test rejects {fast}");
-        ok &= !up || fast;
+        ok &= up == fast;
     }
 
     // ---------- (2) mat_mul ----------
@@ -85,6 +88,13 @@ fn main() {
         let bm = Matrix::from_col_major_vec(k, n, b.clone());
         let reps = (20_000_000 / (m * k * n + 2000)).max(5);
         let (t_up, c_up) = time(reps, || mat_mul(&am, &bm).unwrap());
+        let (t_own, _) = time(reps, || mat_mul_owned(am.clone(), bm.clone()).unwrap());
+        let (t_clone, _) = time(reps, || (am.clone(), bm.clone()));
+        let ctx = CpuExecutionContext::from_backend(CpuBackend::with_threads(1).unwrap());
+        let (t_sess, _) = ctx
+            .with_concrete_session(|session| time(reps, || session.mat_mul(&am, &bm).unwrap()))
+            .unwrap();
+        println!("      mat_mul_owned(clone, clone) {:9.2} us (the two clones alone {:7.2} us) | session.mat_mul, one session {:9.2} us", 1e6 * t_own, 1e6 * t_clone, 1e6 * t_sess);
         let mut c = vec![Complex64::new(0.0, 0.0); m * n];
         let (t_f, _) = time(reps, || {
             matmul(

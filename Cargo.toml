@@ -7,11 +7,11 @@ description = "Minimal timing reproducers for tensor4all-rs hot paths (public AP
 
 [dependencies]
 # Pinned revision of tensor4all-rs. The files these reproducers exercise are
-# unchanged on main 8b249a83.
-tensor4all-core = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "9222cbeec2e62b512b546685a4b513b139757136" }
-tensor4all-treetn = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "9222cbeec2e62b512b546685a4b513b139757136" }
-tensor4all-tensorbackend = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "9222cbeec2e62b512b546685a4b513b139757136" }
-tensor4all-treetci = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "9222cbeec2e62b512b546685a4b513b139757136" }
+# measured on main 937f4738.
+tensor4all-core = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "937f4738db7e0a57836f9e49466508d56b4f1f7a" }
+tensor4all-treetn = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "937f4738db7e0a57836f9e49466508d56b4f1f7a" }
+tensor4all-tensorbackend = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "937f4738db7e0a57836f9e49466508d56b4f1f7a" }
+tensor4all-treetci = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "937f4738db7e0a57836f9e49466508d56b4f1f7a" }
 # Used only by the end-to-end binary `comb`.
 num-complex = "0.4"
 anyhow = "1"
@@ -20,7 +20,7 @@ rand_chacha = "0.9"
 serde_json = "1"
 rustc-hash = "2"
 # Used only by the binary `linalg` (the same faer that tensor4all-tensorbackend uses).
-faer = { package = "t4a-faer", version = "=0.24.7" }
+faer = { package = "t4a-faer", version = "=0.25.2" }
 
 # To time a locally patched checkout instead, uncomment and adjust the path:
 # [patch."https://github.com/tensor4all/tensor4all-rs"]

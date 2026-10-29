@@ -2,15 +2,15 @@
 
 Minimal timing reproducers for hot paths in
 [tensor4all-rs](https://github.com/tensor4all/tensor4all-rs). They use only the
-public API, pinned to `9222cbe` (the exercised files are unchanged on `main`
-`8b249a83`), and need nothing else.
+public API, pinned to `937f4738` (`main` of 2026-10-29; earlier commits of this
+repository are pinned to `9222cbe`), and need nothing else.
 
 | Binary | What it isolates | Issue |
 |---|---|---|
 | `memo` | `MultiIndexCache::evaluate_batched` per requested point, against a minimal one-key-one-lookup baseline and against no memo | tensor4all-rs#1020 |
 | `evaluator` | `TreeTNCachedEvaluator::evaluate_batched_typed` per point, large and small batches | tensor4all-rs#1021 |
 | `readout` | fixed cost per call: the same points read as one batch and one point per call | tensor4all-rs#1022 |
-| `linalg` | three per-call costs below the evaluator: the finiteness passes before rrLU, `tensorbackend::mat_mul(&a, &b)` against faer on borrowed slices, `IdxTensor::dense_host_values` against `with_dense_slice` | not filed (candidates, see the tracking issue) |
+| `linalg` | three per-call costs below the evaluator: the finiteness passes before rrLU, `tensorbackend::mat_mul(&a, &b)` against faer on borrowed slices, `IdxTensor::dense_host_values` against `with_dense_slice` | tensor4all-rs issues for the three candidates (see the tracking issue #1027) |
 | `bipartition` | cost per entry of candidate matrices (points assembled, then `MultiIndexCache::evaluate_batched`) against caller-side keys built from the two sides of the matrix | tensor4all-rs#1026 |
 | `comb` | end-to-end check: a full `crossinterpolate2` on a comb tree (three binary branches on a site-free junction, target a sum of K exponentials); `replay` sends treetci's recorded request stream through `MultiIndexCache`; `eval` times the evaluator on the result | all of the above |
 
@@ -40,7 +40,7 @@ mean bitwise-equal results.
 
 ## Compare a patched tensor4all-rs
 
-1. Check out tensor4all-rs at `9222cbe` next to this directory and apply a
+1. Check out tensor4all-rs at `937f4738` next to this directory and apply a
    patch from `patches/`, inside the checkout:
    `git apply ../t4a-perf-repro/patches/memo.diff` (memo) or
    `.../evaluator.diff` (evaluator). The patches are proofs of concept and
