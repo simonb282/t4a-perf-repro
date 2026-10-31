@@ -4,8 +4,11 @@
 //! one 512 x 512 Complex64 `mat_mul` and then 20 ms of serial work, for 3 s. The other threads do nothing in the
 //! serial phase, so with sleeping workers the CPU time is about the wall time.
 //!
-//! `thread_spin team <threads> <idle_spin_ms>`: the same loop on a bare `threadteam::Pool`, with the pool's idle
-//! spin given, to show what the wait policy changes (the default is 200 ms).
+//! `thread_spin backend <active|passive|N>` (feature `wait-policy`, tensor4all-rs with `CpuWaitPolicy`): the same with
+//! `set_default_cpu_wait_policy` called first; `N` is `CpuWaitPolicy::SpinPolls(N)`.
+//!
+//! `thread_spin team <threads> <idle_spin_ms> [spin_polls]`: the same loop on a bare `threadteam::Pool` (0.2.0), with
+//! the pool's idle spin (default 200 ms) and optionally its spin budget (`spin_polls`, default per architecture).
 //!
 //! Prints wall time, CPU time (utime + stime of the process) and their ratio.
 
@@ -45,13 +48,26 @@ fn report(label: &str, wall: f64, cpu0: f64) {
     println!("{label}: wall {wall:5.2} s, cpu {cpu:5.2} s, cpu/wall {:4.2}", cpu / wall);
 }
 
-fn backend() {
+#[cfg(feature = "wait-policy")]
+fn set_policy(arg: &str) -> String {
+    use tensor4all_tensorbackend::{CpuWaitPolicy, set_default_cpu_wait_policy};
+    let policy = match arg {
+        "active" => CpuWaitPolicy::Active,
+        "passive" => CpuWaitPolicy::Passive,
+        polls => CpuWaitPolicy::SpinPolls(polls.parse().expect("active, passive or a poll count")),
+    };
+    set_default_cpu_wait_policy(policy).expect("first set");
+    format!("{policy:?}")
+}
+
+fn backend(policy: &str) {
     let n = 512;
     let data: Vec<Complex64> = (0..n * n)
         .map(|i| Complex64::new((i % 7) as f64 - 3.0, (i % 5) as f64 - 2.0))
         .collect();
     let a = Matrix::from_col_major_vec(n, n, data);
     let threads = with_default_backend(|b| b.num_threads());
+    let policy = policy.to_owned();
     let (cpu0, start) = (cpu_seconds(), Instant::now());
     let mut calls = 0;
     while start.elapsed() < RUN {
@@ -60,19 +76,22 @@ fn backend() {
         calls += 1;
     }
     report(
-        &format!("backend, {threads} threads, {calls} x (mat_mul + 20 ms serial)"),
+        &format!("backend {policy}, {threads} threads, {calls} x (mat_mul + 20 ms serial)"),
         start.elapsed().as_secs_f64(),
         cpu0,
     );
 }
 
-fn team(threads: usize, idle_spin_ms: u64) {
-    let pool = threadteam::Pool::builder()
+fn team(threads: usize, idle_spin_ms: u64, spin_polls: Option<u32>) {
+    let mut builder = threadteam::Pool::builder()
         .threads(threads)
         .idle_spin(Duration::from_millis(idle_spin_ms))
-        .acquire_timeout(Duration::from_secs(10))
-        .build()
-        .expect("pool");
+        .acquire_timeout(Duration::from_secs(10));
+    if let Some(polls) = spin_polls {
+        builder = builder.spin_polls(polls);
+    }
+    let pool = builder.build().expect("pool");
+    let polls = pool.spin_polls();
     let mut exec = threadteam::Exec::new(&pool, threads).expect("exec");
     let (cpu0, start) = (cpu_seconds(), Instant::now());
     let mut calls = 0;
@@ -88,7 +107,7 @@ fn team(threads: usize, idle_spin_ms: u64) {
     });
     outcome.expect("team scope");
     report(
-        &format!("team, {threads} threads, idle_spin {idle_spin_ms} ms, {calls} x (section + 20 ms serial)"),
+        &format!("team, {threads} threads, idle_spin {idle_spin_ms} ms, spin_polls {polls}, {calls} x (section + 20 ms serial)"),
         start.elapsed().as_secs_f64(),
         cpu0,
     );
@@ -97,11 +116,24 @@ fn team(threads: usize, idle_spin_ms: u64) {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
-        ["backend"] => backend(),
+        ["backend"] => backend("default"),
+        #[cfg(feature = "wait-policy")]
+        ["backend", policy] => {
+            let label = set_policy(policy);
+            backend(&label)
+        }
         ["team", threads, spin] => team(
             threads.parse().expect("threads"),
             spin.parse().expect("idle_spin_ms"),
+            None,
         ),
-        _ => eprintln!("usage: thread_spin backend | thread_spin team <threads> <idle_spin_ms>"),
+        ["team", threads, spin, polls] => team(
+            threads.parse().expect("threads"),
+            spin.parse().expect("idle_spin_ms"),
+            Some(polls.parse().expect("spin_polls")),
+        ),
+        _ => eprintln!(
+            "usage: thread_spin backend [active|passive|N] | thread_spin team <threads> <idle_spin_ms> [spin_polls]"
+        ),
     }
 }

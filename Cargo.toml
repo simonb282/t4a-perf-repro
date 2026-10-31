@@ -22,7 +22,11 @@ rustc-hash = "2"
 # Used only by the binary `linalg` (the same faer that tensor4all-tensorbackend uses).
 faer = { package = "t4a-faer", version = "=0.25.2" }
 # Used only by the binary `thread_spin` (the pool under the CPU kernels).
-threadteam = "=0.1.3"
+threadteam = "=0.2.0"
+
+[features]
+# `thread_spin backend <policy>` needs tensor4all-rs with `set_default_cpu_wait_policy`: patch to such a checkout.
+wait-policy = []
 
 # To time a locally patched checkout instead, uncomment and adjust the path:
 # [patch."https://github.com/tensor4all/tensor4all-rs"]
