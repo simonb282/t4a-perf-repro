@@ -1,0 +1,23 @@
+[package]
+name = "ift-speed"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Inverse-QFT zip-up + truncate (and cached readout) of a saved comb TreeTN (public API only)"
+
+[workspace]
+
+[dependencies]
+tensor4all-core = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "e7861ba2" }
+tensor4all-treetn = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "e7861ba2" }
+tensor4all-quanticstransform = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "e7861ba2" }
+tensor4all-hdf5 = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "e7861ba2" }
+num-complex = "0.4"
+anyhow = "1"
+pprof = { version = "0.14", features = ["flamegraph", "frame-pointer"], optional = true }
+
+[features]
+profile = ["dep:pprof"]
+
+[profile.release]
+debug = "line-tables-only"
