@@ -304,6 +304,11 @@ fn line_readout_tree(
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(CachedEvaluatorOptions::<usize>::default().branch_slice_cache_max_bytes),
+            // MSG_CAP=<bytes> overrides the per-edge message cache budget (default 8 MiB).
+            message_cache_max_bytes: std::env::var("MSG_CAP")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(CachedEvaluatorOptions::<usize>::default().message_cache_max_bytes),
             ..CachedEvaluatorOptions::default()
         },
     )?;
