@@ -313,9 +313,19 @@ fn line_readout_tree(
     let prof = Profiler::start();
     let c = Instant::now();
     let mut hash = 0xCBF2_9CE4_8422_2325u64;
-    for _ in 0..n_lines {
-        let fixed = [0u64, splitmix(&mut state) >> (64 - r), splitmix(&mut state) >> (64 - r)];
-        let start = splitmix(&mut state) >> (64 - r);
+    // PLANE=1: a plane as an application reads it, line by line: every line covers the same x range around the
+    // grid centre, y steps by one per line, z is fixed.
+    let plane = std::env::var_os("PLANE").is_some();
+    let half = 1u64 << (r - 1);
+    for line in 0..n_lines as u64 {
+        let (fixed, start) = if plane {
+            ([0u64, half - n_lines as u64 / 2 + line, half], half - per_line as u64 / 2)
+        } else {
+            (
+                [0u64, splitmix(&mut state) >> (64 - r), splitmix(&mut state) >> (64 - r)],
+                splitmix(&mut state) >> (64 - r),
+            )
+        };
         let mut columns = Vec::with_capacity(n_idx * per_line);
         for p in 0..per_line as u64 {
             let x = [(start + p) & ((1u64 << r) - 1), fixed[1], fixed[2]];
