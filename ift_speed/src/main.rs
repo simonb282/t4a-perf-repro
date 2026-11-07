@@ -206,7 +206,12 @@ fn readout(path: &str, r: usize, d: usize, n_points: usize) -> Result<()> {
 
 fn readout_tree(tn: TreeTN<IdxTensor, usize>, r: usize, d: usize, n_points: usize) -> Result<()> {
     let junction = r * d;
-    let tn = tn.canonicalize([junction], CanonicalizationOptions::default())?;
+    // NO_CANON=1 evaluates the tree as built (the canonicalizing QR is not bitwise across thread counts, #1162).
+    let tn = if std::env::var_os("NO_CANON").is_some() {
+        tn
+    } else {
+        tn.canonicalize([junction], CanonicalizationOptions::default())?
+    };
     // Site indices: the branch nodes' in node order, then the junction's.
     let mut sites = Vec::new();
     for v in 0..=junction {
@@ -277,6 +282,67 @@ fn main() -> Result<()> {
             for _ in 0..reps {
                 readout(&a[2], num(3)? as usize, num(4)? as usize, num(5)? as usize)?;
             }
+        }
+        Some("matmul") => {
+            // matmul <m> <k> <n>: hash of tensor4all_tensorbackend::mat_mul of seeded complex matrices.
+            use tensor4all_tensorbackend::{Matrix, mat_mul};
+            let (m, k, n) = (num(2)? as usize, num(3)? as usize, num(4)? as usize);
+            let mut state = 7u64;
+            let mut random = || {
+                let x = splitmix(&mut state);
+                (x >> 11) as f64 / (1u64 << 53) as f64 - 0.5
+            };
+            let mut fill = |len: usize| -> Vec<Complex64> {
+                (0..len).map(|_| Complex64::new(random(), random())).collect()
+            };
+            let a = Matrix::from_col_major_vec(m, k, fill(m * k));
+            let b = Matrix::from_col_major_vec(k, n, fill(k * n));
+            let c = mat_mul(&a, &b)?;
+            let mut hash = 0xCBF2_9CE4_8422_2325u64;
+            for z in c.as_col_major_slice() {
+                fnv(&mut hash, z.re.to_bits());
+                fnv(&mut hash, z.im.to_bits());
+            }
+            println!("RESULT matmul {m}x{k}x{n} fingerprint {hash:016x}");
+        }
+        Some("matmul-f64") => {
+            use tensor4all_tensorbackend::{Matrix, mat_mul};
+            let (m, k, n) = (num(2)? as usize, num(3)? as usize, num(4)? as usize);
+            let mut state = 7u64;
+            let mut fill = |len: usize| -> Vec<f64> {
+                (0..len).map(|_| (splitmix(&mut state) >> 11) as f64 / (1u64 << 53) as f64 - 0.5).collect()
+            };
+            let a = Matrix::from_col_major_vec(m, k, fill(m * k));
+            let b = Matrix::from_col_major_vec(k, n, fill(k * n));
+            let c = mat_mul(&a, &b)?;
+            let mut hash = 0xCBF2_9CE4_8422_2325u64;
+            for x in c.as_col_major_slice() {
+                fnv(&mut hash, x.to_bits());
+            }
+            println!("RESULT matmul-f64 {m}x{k}x{n} fingerprint {hash:016x}");
+        }
+        Some("contract") => {
+            // contract <m> <k> <n>: the same complex product through IdxTensor contraction (the einsum route).
+            use tensor4all_core::{DynIndex, TensorContractionLike};
+            let (m, k, n) = (num(2)? as usize, num(3)? as usize, num(4)? as usize);
+            let mut state = 7u64;
+            let mut random = || {
+                let x = splitmix(&mut state);
+                (x >> 11) as f64 / (1u64 << 53) as f64 - 0.5
+            };
+            let mut fill = |len: usize| -> Vec<Complex64> {
+                (0..len).map(|_| Complex64::new(random(), random())).collect()
+            };
+            let (i, kk, j) = (DynIndex::new_dyn(m), DynIndex::new_dyn(k), DynIndex::new_dyn(n));
+            let a = IdxTensor::from_dense(vec![i, kk.clone()], fill(m * k))?;
+            let b = IdxTensor::from_dense(vec![kk, j], fill(k * n))?;
+            let c = a.contract_pair(&b)?;
+            let mut hash = 0xCBF2_9CE4_8422_2325u64;
+            for z in c.to_vec::<Complex64>()? {
+                fnv(&mut hash, z.re.to_bits());
+                fnv(&mut hash, z.im.to_bits());
+            }
+            println!("RESULT contract {m}x{k}x{n} fingerprint {hash:016x}");
         }
         Some("synthetic-readout") => {
             // synthetic-readout <r> <chi0,chi1,chi2> <n_points>
