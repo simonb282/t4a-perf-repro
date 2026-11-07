@@ -272,6 +272,73 @@ fn synthetic_comb(r: usize, chis: &[usize], seed: u64) -> Result<TreeTN<IdxTenso
     Ok(TreeTN::from_tensors(tensors, (0..=r * d).collect())?)
 }
 
+/// `n_lines` lines of `per_line` consecutive grid points along axis 0 (the other two axes fixed at random values per
+/// line), each line one batch with the hint at the top of branch 0 (the node next to the junction), the way a caller
+/// reads lines and planes. Site (i, j) carries bit i of axis j (leaf = least significant).
+fn line_readout(path: &str, r: usize, d: usize, n_lines: usize, per_line: usize) -> Result<()> {
+    let tn = tensor4all_hdf5::load_treetn::<usize>(path, "state").context("load")?;
+    line_readout_tree(tn, r, d, n_lines, per_line)
+}
+
+fn line_readout_tree(
+    tn: TreeTN<IdxTensor, usize>,
+    r: usize,
+    d: usize,
+    n_lines: usize,
+    per_line: usize,
+) -> Result<()> {
+    let junction = r * d;
+    let mut sites = Vec::new();
+    for v in 0..=junction {
+        let space = tn.site_space(&v).ok_or_else(|| anyhow!("site space {v}"))?;
+        sites.extend(space.iter().cloned());
+    }
+    let n_idx = sites.len();
+    let mut ev = TreeTNCachedEvaluator::new(
+        &tn,
+        &sites,
+        CachedEvaluatorOptions {
+            center: Some(junction),
+            max_batch_points: std::env::var("MAX_BATCH").ok().and_then(|s| s.parse().ok()),
+            branch_slice_cache_max_bytes: std::env::var("SLICE_CAP")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(CachedEvaluatorOptions::<usize>::default().branch_slice_cache_max_bytes),
+            ..CachedEvaluatorOptions::default()
+        },
+    )?;
+    let mut state = 11u64;
+    // HINT=leaf centres the lines at the leaf of branch 0 (low bits vary fastest), else at its top.
+    let top = if std::env::var("HINT").as_deref() == Ok("leaf") { 0 } else { (r - 1) * d };
+    let prof = Profiler::start();
+    let c = Instant::now();
+    let mut hash = 0xCBF2_9CE4_8422_2325u64;
+    for _ in 0..n_lines {
+        let fixed = [0u64, splitmix(&mut state) >> (64 - r), splitmix(&mut state) >> (64 - r)];
+        let start = splitmix(&mut state) >> (64 - r);
+        let mut columns = Vec::with_capacity(n_idx * per_line);
+        for p in 0..per_line as u64 {
+            let x = [(start + p) & ((1u64 << r) - 1), fixed[1], fixed[2]];
+            for i in 0..r {
+                for xj in x {
+                    columns.push(((xj >> i) & 1) as usize);
+                }
+            }
+            columns.push(0);
+        }
+        let shape = [n_idx, per_line];
+        let batch = ColMajorArrayRef::new(&columns, &shape)?;
+        for z in ev.evaluate_batched_typed::<Complex64>(batch, EvaluationHint::around(top))? {
+            fnv(&mut hash, z.re.to_bits());
+            fnv(&mut hash, z.im.to_bits());
+        }
+    }
+    let t = c.elapsed().as_secs_f64();
+    prof.finish();
+    println!("RESULT lines {n_lines}x{per_line} eval {t:.3}s peak_rss {:.0} MiB fingerprint {hash:016x}", peak_rss_mib());
+    Ok(())
+}
+
 fn readout(path: &str, r: usize, d: usize, n_points: usize) -> Result<()> {
     let tn = tensor4all_hdf5::load_treetn::<usize>(path, "state").context("load")?;
     readout_tree(tn, r, d, n_points)
@@ -416,6 +483,22 @@ fn main() -> Result<()> {
                 fnv(&mut hash, z.im.to_bits());
             }
             println!("RESULT contract {m}x{k}x{n} fingerprint {hash:016x}");
+        }
+        Some("line-readout") => {
+            // line-readout <file.h5> <r> <d> <n_lines> <per_line>
+            line_readout(&a[2], num(3)? as usize, num(4)? as usize, num(5)? as usize, num(6)? as usize)?;
+        }
+        Some("synthetic-lines") => {
+            // synthetic-lines <r> <chi0,chi1,chi2> <n_lines> <per_line>: line-readout on the random comb (not canonicalized).
+            let r = num(2)? as usize;
+            let chis: Vec<usize> = a
+                .get(3)
+                .ok_or_else(|| anyhow!("missing chis"))?
+                .split(',')
+                .map(|c| c.parse().context("chi"))
+                .collect::<Result<_>>()?;
+            let tn = synthetic_comb(r, &chis, 7)?;
+            line_readout_tree(tn, r, chis.len(), num(4)? as usize, num(5)? as usize)?;
         }
         Some("synthetic-ift") => {
             // synthetic-ift <r> <m> <tol>: TreeTCI of m Lorentzians, then the ift procedure (eps 1e-8 / 1e-9).
