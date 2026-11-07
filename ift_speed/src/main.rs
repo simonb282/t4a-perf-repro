@@ -532,7 +532,7 @@ fn main() -> Result<()> {
         }
         Some("synthetic-ift-random") => {
             // synthetic-ift-random <r> <chi0,chi1,chi2> <decay>: the random comb with bond spectra decaying as
-            // exp(−decay·b), then the ift procedure (eps 1e-8 / 1e-9).
+            // exp(−decay·b), then the ift procedure (eps 1e-8 / 1e-9). PRETRUNC=<rtol> compresses it first.
             let r = num(2)? as usize;
             let chis: Vec<usize> = a
                 .get(3)
@@ -540,7 +540,15 @@ fn main() -> Result<()> {
                 .split(',')
                 .map(str::parse)
                 .collect::<Result<_, _>>()?;
-            let tn = synthetic_comb(r, &chis, num(4)?, 7)?;
+            let mut tn = synthetic_comb(r, &chis, num(4)?, 7)?;
+            // PRETRUNC=<rtol>: compress the comb once first, so that it enters the transform near its optimal
+            // bonds, as the output of an approximation algorithm does.
+            if let Ok(rtol) = std::env::var("PRETRUNC") {
+                tn = tn.truncate(
+                    [r * chis.len()],
+                    TruncationOptions::default().with_svd_policy(SvdTruncationPolicy::new(rtol.parse()?)),
+                )?;
+            }
             ift_tree(tn, r, chis.len(), 1e-8, 1e-9)?;
         }
         Some("synthetic-readout") => {
