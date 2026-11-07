@@ -239,7 +239,9 @@ fn ift_tree(loaded: TreeTN<IdxTensor, usize>, r: usize, d: usize, eps_zipup: f64
 /// A random complex comb: d branches of r binary sites, level i of branch j is node i·d + j (level 0 the leaf),
 /// bond dimension min(2^(i+1), chi_j) above level i, a dimension-1 junction r·d. Site index first, then the bond
 /// to the child (towards the leaf), then the bond to the parent: the layout of a tree canonicalized at the junction.
-fn synthetic_comb(r: usize, chis: &[usize], seed: u64) -> Result<TreeTN<IdxTensor, usize>> {
+/// With `decay > 0`, entry b of every bond towards the parent is weighted by exp(−decay·b), so the bond spectra decay
+/// geometrically and the comb compresses like a smooth state; `decay = 0` leaves the random entries unweighted.
+fn synthetic_comb(r: usize, chis: &[usize], decay: f64, seed: u64) -> Result<TreeTN<IdxTensor, usize>> {
     use tensor4all_core::{DynIndex, IndexLike};
     let d = chis.len();
     let mut state = seed;
@@ -260,7 +262,14 @@ fn synthetic_comb(r: usize, chis: &[usize], seed: u64) -> Result<TreeTN<IdxTenso
             }
             indices.push(branch[i].clone());
             let len: usize = indices.iter().map(|x| x.dim()).product();
-            let data: Vec<Complex64> = (0..len).map(|_| Complex64::new(random(), random())).collect();
+            // Column-major: the bond to the parent is the slowest index.
+            let below = len / branch[i].dim();
+            let data: Vec<Complex64> = (0..len)
+                .map(|k| {
+                    let z = Complex64::new(random(), random());
+                    if decay > 0.0 { z * (-decay * (k / below) as f64).exp() } else { z }
+                })
+                .collect();
             tensors.push(IdxTensor::from_dense(indices, data)?);
         }
     }
@@ -512,7 +521,7 @@ fn main() -> Result<()> {
                 .split(',')
                 .map(|c| c.parse().context("chi"))
                 .collect::<Result<_>>()?;
-            let tn = synthetic_comb(r, &chis, 7)?;
+            let tn = synthetic_comb(r, &chis, 0.0, 7)?;
             line_readout_tree(tn, r, chis.len(), num(4)? as usize, num(5)? as usize)?;
         }
         Some("synthetic-ift") => {
@@ -520,6 +529,19 @@ fn main() -> Result<()> {
             let r = num(2)? as usize;
             let tn = lorentzian_comb(r, num(3)? as usize, num(4)?)?;
             ift_tree(tn, r, 3, 1e-8, 1e-9)?;
+        }
+        Some("synthetic-ift-random") => {
+            // synthetic-ift-random <r> <chi0,chi1,chi2> <decay>: the random comb with bond spectra decaying as
+            // exp(−decay·b), then the ift procedure (eps 1e-8 / 1e-9).
+            let r = num(2)? as usize;
+            let chis: Vec<usize> = a
+                .get(3)
+                .ok_or_else(|| anyhow!("missing chis"))?
+                .split(',')
+                .map(str::parse)
+                .collect::<Result<_, _>>()?;
+            let tn = synthetic_comb(r, &chis, num(4)?, 7)?;
+            ift_tree(tn, r, chis.len(), 1e-8, 1e-9)?;
         }
         Some("synthetic-readout") => {
             // synthetic-readout <r> <chi0,chi1,chi2> <n_points>
@@ -530,7 +552,7 @@ fn main() -> Result<()> {
                 .split(',')
                 .map(|c| c.parse().context("chi"))
                 .collect::<Result<_>>()?;
-            let tn = synthetic_comb(r, &chis, 7)?;
+            let tn = synthetic_comb(r, &chis, 0.0, 7)?;
             readout_tree(tn, r, chis.len(), num(4)? as usize)?;
         }
         _ => return Err(anyhow!("usage: ift-speed ift|readout <file.h5> <r> <d> ... | synthetic-readout <r> <chis> <n>")),
