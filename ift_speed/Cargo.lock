@@ -665,6 +665,7 @@ dependencies = [
  "tensor4all-hdf5",
  "tensor4all-quanticstransform",
  "tensor4all-tensorbackend",
+ "tensor4all-treetci",
  "tensor4all-treetn",
 ]
 
@@ -2323,6 +2324,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "tensor4all-treetci"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "num-complex 0.4.6",
+ "petgraph",
+ "rand",
+ "rand_chacha",
+ "tenferro-linalg",
+ "tenferro-tensor",
+ "tensor4all-core",
+ "tensor4all-tensorbackend",
+ "tensor4all-treetn",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "tensor4all-treetn"
 version = "0.2.0"
 dependencies = [
@@ -2848,8 +2866,4 @@ version = "0.2.0"
 
 [[patch.unused]]
 name = "tensor4all-treersi"
-version = "0.2.0"
-
-[[patch.unused]]
-name = "tensor4all-treetci"
 version = "0.2.0"

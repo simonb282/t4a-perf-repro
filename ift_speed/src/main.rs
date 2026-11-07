@@ -107,8 +107,81 @@ impl Profiler {
 }
 
 fn ift(path: &str, r: usize, d: usize, eps_zipup: f64, eps_final: f64) -> Result<()> {
-    let t0 = Instant::now();
     let loaded = tensor4all_hdf5::load_treetn::<usize>(path, "state").context("load")?;
+    ift_tree(loaded, r, d, eps_zipup, eps_final)
+}
+
+/// A low-rank real comb from TreeTCI: the comb_speed target (sum of `m` narrow 3D Lorentzians at fixed
+/// pseudo-random centres; site (i, j) carries bit i of axis j, leaf = least significant), tolerance `tol`, seed 7.
+fn lorentzian_comb(r: usize, m: usize, tol: f64) -> Result<TreeTN<IdxTensor, usize>> {
+    use tensor4all_treetci::{
+        DefaultProposer, GlobalIndexBatch, TreeTciEdge, TreeTciGraph, TreeTciOptions, crossinterpolate2,
+    };
+    let d = 3usize;
+    let junction = r * d;
+    let mut local_dims = vec![2usize; junction];
+    local_dims.push(1);
+    let mut edges = Vec::new();
+    for j in 0..d {
+        for i in 0..r - 1 {
+            edges.push(TreeTciEdge::new(i * d + j, (i + 1) * d + j));
+        }
+        edges.push(TreeTciEdge::new((r - 1) * d + j, junction));
+    }
+    let graph = TreeTciGraph::new(junction + 1, &edges)?;
+    let mut s = 12345u64;
+    let mut unit = move || (splitmix(&mut s) >> 11) as f64 / (1u64 << 53) as f64;
+    // (centre, 1/w², amplitude) per bump.
+    let bumps: Vec<([f64; 3], f64, f64)> = (0..m)
+        .map(|_| {
+            let c = [0.2 + 0.6 * unit(), 0.2 + 0.6 * unit(), 0.2 + 0.6 * unit()];
+            let w = 0.01 + 0.04 * unit();
+            (c, 1.0 / (w * w), 0.5 + unit())
+        })
+        .collect();
+    let scale = 1.0 / (1u64 << r) as f64;
+    let f_point = |point: &[usize]| -> f64 {
+        let mut x = [0u64; 3];
+        for i in 0..r {
+            for (j, xj) in x.iter_mut().enumerate() {
+                *xj |= (point[i * d + j] as u64) << i;
+            }
+        }
+        let x = x.map(|v| v as f64 * scale);
+        bumps
+            .iter()
+            .map(|(c, inv_w2, a)| {
+                let q = (x[0] - c[0]).powi(2) + (x[1] - c[1]).powi(2) + (x[2] - c[2]).powi(2);
+                a / (1.0 + q * inv_w2)
+            })
+            .sum()
+    };
+    let mut pivot = vec![0usize; junction + 1];
+    for (j, &c) in bumps[0].0.iter().enumerate() {
+        let xi = (c / scale) as u64;
+        for i in 0..r {
+            pivot[i * d + j] = ((xi >> i) & 1) as usize;
+        }
+    }
+    let evaluate = |batch: GlobalIndexBatch<'_>| -> anyhow::Result<Vec<f64>> {
+        Ok(batch.data().chunks_exact(batch.n_sites()).map(f_point).collect())
+    };
+    let options = TreeTciOptions {
+        tolerance: tol,
+        max_iter: 20,
+        seed: Some(7),
+        evaluation_cache_bytes: Some(4 << 30),
+        enable_global_pivots: true,
+        scale_tolerance: true,
+        ..TreeTciOptions::default()
+    };
+    let run = crossinterpolate2(evaluate, local_dims, graph, vec![pivot], options, Some(junction), &DefaultProposer, &mut ())?;
+    eprintln!("tci rank {} err {:.3e}", run.ranks.iter().max().unwrap_or(&0), run.errors.last().unwrap_or(&f64::NAN));
+    Ok(run.treetn)
+}
+
+fn ift_tree(loaded: TreeTN<IdxTensor, usize>, r: usize, d: usize, eps_zipup: f64, eps_final: f64) -> Result<()> {
+    let t0 = Instant::now();
     let junction = r * d;
     let mut tn = loaded.canonicalize([junction], CanonicalizationOptions::default())?;
     let t_load = t0.elapsed().as_secs_f64();
@@ -343,6 +416,12 @@ fn main() -> Result<()> {
                 fnv(&mut hash, z.im.to_bits());
             }
             println!("RESULT contract {m}x{k}x{n} fingerprint {hash:016x}");
+        }
+        Some("synthetic-ift") => {
+            // synthetic-ift <r> <m> <tol>: TreeTCI of m Lorentzians, then the ift procedure (eps 1e-8 / 1e-9).
+            let r = num(2)? as usize;
+            let tn = lorentzian_comb(r, num(3)? as usize, num(4)?)?;
+            ift_tree(tn, r, 3, 1e-8, 1e-9)?;
         }
         Some("synthetic-readout") => {
             // synthetic-readout <r> <chi0,chi1,chi2> <n_points>
