@@ -16,7 +16,7 @@ repository are pinned to `9222cbe`), and need nothing else.
 | `bipartition` | cost per entry of candidate matrices (points assembled, then `MultiIndexCache::evaluate_batched`) against caller-side keys built from the two sides of the matrix | tensor4all-rs#1026 |
 | `comb` | end-to-end check: a full `crossinterpolate2` on a comb tree (three binary branches on a site-free junction, target a sum of K exponentials); `replay` sends treetci's recorded request stream through `MultiIndexCache`; `eval` times the evaluator on the result | all of the above |
 | `comb_speed/` (own crate, pinned to `74e00ad2`) | end-to-end `crossinterpolate2` on a comb of 3 branches × 20 binary sites joined at a dimension-1 vertex, f = sum of `m` narrow Lorentzians, tolerance 1e-8, global pivots and memo on; prints per-iteration stats, evaluator time vs the rest, peak RSS and a fingerprint of all materialized tensors | rrLU fused argmax, memo FxHash (#1020), global pivot search (branch-slice cap, keyed materialization) |
-| `ift_speed/` (own crate, pinned to `e7861ba2`) | a comb TreeTN (saved in HDF5, or a synthetic random complex comb): inverse quantics Fourier transform (per-branch zip-up, then `truncate`), and `TreeTNCachedEvaluator` readouts of random points, lines and planes (`synthetic-readout`, `synthetic-lines`, `PLANE=1`, `SLICE_CAP`, `MSG_CAP`, `MAX_BATCH`); `matmul`/`contract` bit checks across thread counts; prints phase times, peak RSS and a fingerprint | cached-evaluator point kernels, branch-slice budget, message budget, batch limit, truncate/zip-up passes, Complex64 GEMM bits (#1162) |
+| `ift_speed/` (own crate, pinned to `e7861ba2`) | a comb TreeTN (saved in HDF5, or a random complex comb, optionally with decaying bond spectra): inverse quantics Fourier transform (per-branch zip-up, then `truncate`), and `TreeTNCachedEvaluator` readouts of random points, lines and planes (`synthetic-readout`, `synthetic-lines`, `PLANE=1`, `SLICE_CAP`, `MSG_CAP`, `MAX_BATCH`); `matmul`/`contract` bit checks across thread counts; prints phase times, peak RSS and a fingerprint | cached-evaluator point kernels, branch-slice budget, message budget, batch limit, truncate/zip-up passes, Complex64 GEMM bits (#1162) |
 
 ## Run
 
@@ -65,6 +65,7 @@ m = 20 → `ac20052b3a4bba3c`, m = 50 → `83b3ce4acc7a8619`; every branch above
 cd ift_speed && cargo build --release
 RAYON_NUM_THREADS=8 ./target/release/ift-speed synthetic-readout 20 145,165,151 1000      # random points around the centre
 HINT=leaf RAYON_NUM_THREADS=8 ./target/release/ift-speed synthetic-lines 20 145,165,151 64 1024   # 64 lines; PLANE=1 for a plane
+RAYON_NUM_THREADS=8 ./target/release/ift-speed synthetic-ift-random 20 160,160,160 0.2   # inverse QFT per branch, then truncate
 ```
 
 The header of `ift_speed/src/main.rs` documents the HDF5 modes; the synthetic modes and their environment variables are described where `main` dispatches them. To time a PR branch, add a
