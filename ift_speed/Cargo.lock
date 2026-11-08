@@ -665,7 +665,6 @@ dependencies = [
  "tensor4all-hdf5",
  "tensor4all-quanticstransform",
  "tensor4all-tensorbackend",
- "tensor4all-treetci",
  "tensor4all-treetn",
 ]
 
@@ -2208,6 +2207,7 @@ dependencies = [
 [[package]]
 name = "tensor4all-core"
 version = "0.2.0"
+source = "git+https://github.com/tensor4all/tensor4all-rs?rev=e7861ba2#e7861ba250134b1a65374432594dae97be38a3e8"
 dependencies = [
  "anyhow",
  "bnum",
@@ -2233,6 +2233,7 @@ dependencies = [
 [[package]]
 name = "tensor4all-cpu-platform"
 version = "0.2.0"
+source = "git+https://github.com/tensor4all/tensor4all-rs?rev=e7861ba2#e7861ba250134b1a65374432594dae97be38a3e8"
 dependencies = [
  "tenferro-einsum",
  "tenferro-linalg",
@@ -2241,6 +2242,7 @@ dependencies = [
 [[package]]
 name = "tensor4all-hdf5"
 version = "0.2.0"
+source = "git+https://github.com/tensor4all/tensor4all-rs?rev=e7861ba2#e7861ba250134b1a65374432594dae97be38a3e8"
 dependencies = [
  "anyhow",
  "hdf5-metno",
@@ -2256,6 +2258,7 @@ dependencies = [
 [[package]]
 name = "tensor4all-itensorlike"
 version = "0.2.0"
+source = "git+https://github.com/tensor4all/tensor4all-rs?rev=e7861ba2#e7861ba250134b1a65374432594dae97be38a3e8"
 dependencies = [
  "anyhow",
  "num-complex 0.4.6",
@@ -2271,6 +2274,7 @@ dependencies = [
 [[package]]
 name = "tensor4all-quanticstransform"
 version = "0.2.0"
+source = "git+https://github.com/tensor4all/tensor4all-rs?rev=e7861ba2#e7861ba250134b1a65374432594dae97be38a3e8"
 dependencies = [
  "anyhow",
  "num-bigint",
@@ -2289,6 +2293,7 @@ dependencies = [
 [[package]]
 name = "tensor4all-simplett"
 version = "0.2.0"
+source = "git+https://github.com/tensor4all/tensor4all-rs?rev=e7861ba2#e7861ba250134b1a65374432594dae97be38a3e8"
 dependencies = [
  "anyhow",
  "bnum",
@@ -2304,6 +2309,7 @@ dependencies = [
 [[package]]
 name = "tensor4all-tensorbackend"
 version = "0.2.0"
+source = "git+https://github.com/tensor4all/tensor4all-rs?rev=e7861ba2#e7861ba250134b1a65374432594dae97be38a3e8"
 dependencies = [
  "anyhow",
  "libc",
@@ -2324,25 +2330,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "tensor4all-treetci"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "num-complex 0.4.6",
- "petgraph",
- "rand",
- "rand_chacha",
- "tenferro-linalg",
- "tenferro-tensor",
- "tensor4all-core",
- "tensor4all-tensorbackend",
- "tensor4all-treetn",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "tensor4all-treetn"
 version = "0.2.0"
+source = "git+https://github.com/tensor4all/tensor4all-rs?rev=e7861ba2#e7861ba250134b1a65374432594dae97be38a3e8"
 dependencies = [
  "anyhow",
  "dyn-clone",
@@ -2835,35 +2825,3 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[patch.unused]]
-name = "tensor4all-aci"
-version = "0.2.0"
-
-[[patch.unused]]
-name = "tensor4all-capi"
-version = "0.2.0"
-
-[[patch.unused]]
-name = "tensor4all-interpolativeqtt"
-version = "0.2.0"
-
-[[patch.unused]]
-name = "tensor4all-partitionedtreetn"
-version = "0.2.0"
-
-[[patch.unused]]
-name = "tensor4all-quanticstci"
-version = "0.2.0"
-
-[[patch.unused]]
-name = "tensor4all-tensorci"
-version = "0.2.0"
-
-[[patch.unused]]
-name = "tensor4all-treeaci"
-version = "0.2.0"
-
-[[patch.unused]]
-name = "tensor4all-treersi"
-version = "0.2.0"
