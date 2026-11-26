@@ -1,0 +1,23 @@
+[package]
+name = "evaluator-keys"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "TreeTNCachedEvaluator per point on recorded batches, against a minimal per-point reference reader (public API only)"
+
+[workspace]
+
+[dependencies]
+tensor4all-core = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "0d2389512f19be432b63c5a7f6fb48387a9f1536" }
+tensor4all-treetn = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "0d2389512f19be432b63c5a7f6fb48387a9f1536" }
+tensor4all-hdf5 = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "0d2389512f19be432b63c5a7f6fb48387a9f1536" }
+num-complex = "0.4"
+rustc-hash = "2"
+anyhow = "1"
+
+[features]
+# tensor4all-treetn's own phase counters, printed after each case.
+diagnostics = ["tensor4all-treetn/diagnostics"]
+
+[profile.release]
+debug = "line-tables-only"
