@@ -1,6 +1,6 @@
 # evaluator_keys
 
-Time per point of `TreeTNCachedEvaluator::evaluate_batched_typed` (one call per batch) on recorded batches, against a minimal per-point reference reader, for tensor4all-rs#1475. Public API only, pinned to tensor4all-rs `0d2389512f19be432b63c5a7f6fb48387a9f1536`.
+Time per point of `TreeTNCachedEvaluator::evaluate_batched_typed` (one call per batch) on recorded batches, against a minimal per-point reference reader, for tensor4all-rs#1475; the bond-64 data is for tensor4all-rs#1481. Public API only, pinned to tensor4all-rs `0d2389512f19be432b63c5a7f6fb48387a9f1536`.
 
 ## Data
 
@@ -54,3 +54,28 @@ e_bond468_scattered_20000              20000       1   468         3987.72      
 ```
 
 Absolute times vary by about ±30 % between runs on this machine; compare the two columns of a row. Without hints (`HINT=0`), `a_bond16_tci_memo` takes 19.6 µs/pt.
+
+## Bond-64 data (tensor4all-rs#1481)
+
+A second archive, `evaluator-bond64-data.tar.gz` (36 MB, 146 MB unpacked), from the release of this repository, unpacked next to this directory like the first:
+
+```sh
+sha256sum -c evaluator-bond64-data.tar.gz.sha256   # be5896feec0c9dee0a41d85e3d1ba5b35f00f1a7fdc56864d0a995787cf28066
+tar -xzf evaluator-bond64-data.tar.gz
+RAYON_NUM_THREADS=1 taskset -c 2 ./target/release/evaluator-keys ../evaluator-bond64-data    # ~10 min
+```
+
+The batches of one late `TreeTCI2` call (memo on) on three comb trees with 15 binary sites per chain and bonds up to 64 (`trees/bond64_tree_{0,1,2}.h5`), in the same layout as above. Each case's `batches.txt` maps its batch files to the request number in the recorded call and to the replay index quoted in tensor4all-rs#1481. `hints.txt` holds, per batch, the node of the edge recovered from the batch's points (the edge with the fewest distinct left × right key pairs), not an edge reported by `TreeTCI2`.
+
+- `f_bond64_slow_leaf_edge`: the 15 batches that are slow with the hint (#1481). For all of them the recovered edge is at the leaf end of a chain, with one or two left keys × all points, so the hint is a leaf-side node.
+- `g_bond64_large_sample`: every 10th of the call's other 980 batches of ≥ 5 000 points, in request order.
+- `h_bond64_small_sample`: every 20th of its 12 170 batches of < 5 000 points.
+
+Laptop, one thread, on battery (powersave governor), 10 min 27 s, peak RSS 565 MB:
+
+```text
+case                                  points batches  bond evaluator µs/pt reference µs/pt   max rel    max|v|
+f_bond64_slow_leaf_edge               385519      15    64          979.92            6.95   3.7e-15   8.60e-4
+g_bond64_large_sample                2182736      98    64           52.55           46.85   3.1e-15   1.09e-3
+h_bond64_small_sample                  29607     609    64           64.94          891.39   2.6e-15   8.98e-4
+```
